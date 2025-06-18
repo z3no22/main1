@@ -734,9 +734,20 @@ Lỗi cuối: {last_error}"""
         
         st.info(f"Phương thức: {answers_data['method_used']} | Thời gian: {answers_data['fetch_time']}")
         
-        # Export button
-        if st.button("💾 Export Đáp Án"):
-            self.export_answers(answers_data)
+        # Action buttons
+        col_export, col_copy, col_quick = st.columns(3)
+        
+        with col_export:
+            if st.button("💾 Export File", use_container_width=True):
+                self.export_answers(answers_data)
+        
+        with col_copy:
+            if st.button("📋 Copy Chi Tiết", use_container_width=True):
+                self.copy_all_answers(answers_data)
+        
+        with col_quick:
+            if st.button("⚡ Copy Nhanh", use_container_width=True):
+                self.copy_quick_answers(answers_data)
         
         st.markdown("---")
         
@@ -745,12 +756,24 @@ Lỗi cuối: {last_error}"""
             question_title = qa['question'][:50] + "..." if len(qa['question']) > 50 else qa['question']
             
             with st.expander(f"Câu {i}: {question_title}", expanded=True):
-                st.write(f"**Câu hỏi:** {qa['question']}")
+                # Layout cho câu hỏi với nút copy
+                col_question, col_copy_btn = st.columns([4, 1])
                 
-                if qa.get('type'):
-                    st.caption(f"Loại: {qa['type']}")
+                with col_question:
+                    st.write(f"**Câu hỏi:** {qa['question']}")
+                    
+                    if qa.get('type'):
+                        st.caption(f"Loại: {qa['type']}")
+                    
+                    st.write(f"**✅ Đáp án đúng:** {qa['correct_answer']}")
                 
-                st.write(f"**✅ Đáp án đúng:** {qa['correct_answer']}")
+                with col_copy_btn:
+                    # Tạo text để copy cho câu này
+                    single_qa_text = f"Câu {i}: {qa['question']}\nĐáp án: {qa['correct_answer']}"
+                    
+                    if st.button("📋", key=f"copy_{i}", help="Copy câu hỏi này"):
+                        st.code(single_qa_text, language=None)
+                        st.caption("👆 Copy text ở trên")
                 
                 if qa.get('options') and len(qa['options']) > 0:
                     st.write("**Tất cả lựa chọn:**")
@@ -790,6 +813,57 @@ Export Time: {answers_data['fetch_time']}
         
         st.success("✅ File đáp án đã được tạo!")
     
+    def copy_all_answers(self, answers_data):
+        """Copy toàn bộ đáp án vào clipboard"""
+        # Format đáp án để copy
+        copy_text = f"📚 {answers_data['quiz_title']}\n"
+        copy_text += f"👤 Creator: {answers_data.get('creator', 'Unknown')}\n"
+        copy_text += f"📊 Tổng câu hỏi: {answers_data['total_questions']}\n"
+        copy_text += f"🕐 Thời gian: {answers_data['fetch_time']}\n"
+        copy_text += "=" * 50 + "\n\n"
+        
+        for i, qa in enumerate(answers_data['answers'], 1):
+            copy_text += f"❓ Câu {i}: {qa['question']}\n"
+            copy_text += f"✅ Đáp án: {qa['correct_answer']}\n"
+            
+            if qa.get('options') and len(qa['options']) > 0:
+                copy_text += "📝 Các lựa chọn:\n"
+                for j, option in enumerate(qa['options']):
+                    marker = "✓" if option in qa['correct_answer'] else "○"
+                    copy_text += f"   {marker} {chr(65+j)}. {option}\n"
+            
+            copy_text += "\n" + "-" * 30 + "\n\n"
+        
+        # Hiển thị text để copy
+        st.text_area(
+            "📋 Đáp án đã được format - Copy toàn bộ text bên dưới:",
+            value=copy_text,
+            height=300,
+            help="Nhấn Ctrl+A để chọn tất cả, sau đó Ctrl+C để copy"
+        )
+        
+        st.success("✅ Đáp án đã được format! Bạn có thể copy toàn bộ text ở trên.")
+        st.info("💡 **Cách copy:** Nhấn vào text area → Ctrl+A (chọn tất cả) → Ctrl+C (copy)")
+    
+    def copy_quick_answers(self, answers_data):
+        """Copy nhanh chỉ đáp án (format ngắn gọn)"""
+        # Format ngắn gọn chỉ có câu hỏi và đáp án
+        quick_text = f"📚 {answers_data['quiz_title']} - {answers_data['total_questions']} câu\n\n"
+        
+        for i, qa in enumerate(answers_data['answers'], 1):
+            quick_text += f"{i}. {qa['question']}\n→ {qa['correct_answer']}\n\n"
+        
+        # Hiển thị text để copy
+        st.text_area(
+            "⚡ Format nhanh - Chỉ câu hỏi và đáp án:",
+            value=quick_text,
+            height=250,
+            help="Format ngắn gọn, dễ copy và paste"
+        )
+        
+        st.success("✅ Format nhanh hoàn thành!")
+        st.info("💡 **Ưu điểm:** Format ngắn gọn, dễ chia sẻ qua chat/message")
+    
 
     def settings_page(self):
         """Trang cài đặt"""
@@ -803,7 +877,8 @@ Export Time: {answers_data['fetch_time']}
             ✅ Cập nhật Chrome 131 headers cho tương thích tốt hơn<br>
             ✅ Cải thiện challenge token decoder<br>
             ✅ Enhanced security headers<br>
-            🔧 <strong>Hotfix:</strong> Sửa lỗi gzip compression (utf-8 decode error)
+            🔧 <strong>Hotfix:</strong> Sửa lỗi gzip compression (utf-8 decode error)<br>
+            🆕 <strong>New:</strong> Thêm nút copy đáp án (Chi tiết & Nhanh)
         </div>
         """, unsafe_allow_html=True)
         
