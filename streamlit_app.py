@@ -310,11 +310,12 @@ class AnswerHackTool:
             status_text.empty()
     
     def get_quiz_by_id(self, quiz_id):
-        """Lấy quiz data từ Kahoot API"""
+        """Lấy quiz data từ Kahoot API với xử lý gzip compression"""
         import re
         import urllib.request
         import urllib.error
         import json
+        import gzip
         
         if not re.fullmatch(r"^[A-Za-z0-9-]*$", quiz_id):
             return {'error': 'Invalid quiz ID format'}
@@ -333,15 +334,38 @@ class AnswerHackTool:
         try:
             request = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(request, timeout=10) as response:
-                return json.loads(response.read().decode('utf-8'))
+                # Kiểm tra Content-Encoding để xử lý compression
+                content_encoding = response.getheader('Content-Encoding', '').lower()
+                raw_data = response.read()
+                
+                # Xử lý gzip compression
+                if content_encoding == 'gzip':
+                    try:
+                        raw_data = gzip.decompress(raw_data)
+                    except Exception:
+                        # Fallback: thử decode trực tiếp
+                        pass
+                
+                # Decode và parse JSON
+                try:
+                    text_data = raw_data.decode('utf-8')
+                except UnicodeDecodeError:
+                    # Fallback: thử các encoding khác
+                    try:
+                        text_data = raw_data.decode('latin-1')
+                    except:
+                        text_data = raw_data.decode('utf-8', errors='ignore')
+                
+                return json.loads(text_data)
+                
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return {'error': 'Quiz not found. The ID may be incorrect.'}
             return {'error': f'HTTP Error: {e.code} - {e.reason}'}
         except urllib.error.URLError as e:
             return {'error': f'Connection error: {e.reason}. Check your internet connection.'}
-        except json.JSONDecodeError:
-            return {'error': 'Failed to parse the response from Kahoot servers.'}
+        except json.JSONDecodeError as e:
+            return {'error': f'Failed to parse JSON response: {str(e)}'}
         except Exception as e:
             return {'error': f'Unexpected error: {str(e)}'}
     
@@ -392,7 +416,27 @@ class AnswerHackTool:
             try:
                 request = urllib.request.Request(endpoint, headers=headers)
                 with urllib.request.urlopen(request, timeout=15) as response:
-                    data = json.loads(response.read().decode('utf-8'))
+                    # Xử lý gzip compression tương tự như get_quiz_by_id
+                    content_encoding = response.getheader('Content-Encoding', '').lower()
+                    raw_data = response.read()
+                    
+                    if content_encoding == 'gzip':
+                        try:
+                            import gzip
+                            raw_data = gzip.decompress(raw_data)
+                        except Exception:
+                            pass
+                    
+                    # Decode an toàn
+                    try:
+                        text_data = raw_data.decode('utf-8')
+                    except UnicodeDecodeError:
+                        try:
+                            text_data = raw_data.decode('latin-1')
+                        except:
+                            text_data = raw_data.decode('utf-8', errors='ignore')
+                    
+                    data = json.loads(text_data)
                     
                     # Thử các cách khác nhau để extract quiz ID
                     quiz_id = None
@@ -542,7 +586,24 @@ Lỗi cuối: {last_error}"""
                 try:
                     request = urllib.request.Request(url, headers=headers)
                     with urllib.request.urlopen(request, timeout=10) as response:
-                        html_content = response.read().decode('utf-8')
+                        # Xử lý gzip cho web scraping
+                        content_encoding = response.getheader('Content-Encoding', '').lower()
+                        raw_data = response.read()
+                        
+                        if content_encoding == 'gzip':
+                            try:
+                                import gzip
+                                raw_data = gzip.decompress(raw_data)
+                            except Exception:
+                                pass
+                        
+                        try:
+                            html_content = raw_data.decode('utf-8')
+                        except UnicodeDecodeError:
+                            try:
+                                html_content = raw_data.decode('latin-1')
+                            except:
+                                html_content = raw_data.decode('utf-8', errors='ignore')
                         
                         # Tìm UUID patterns trong HTML
                         uuid_patterns = [
@@ -741,7 +802,8 @@ Export Time: {answers_data['fetch_time']}
             ✅ Đã nâng cấp 10 API endpoints mới nhất<br>
             ✅ Cập nhật Chrome 131 headers cho tương thích tốt hơn<br>
             ✅ Cải thiện challenge token decoder<br>
-            ✅ Enhanced security headers
+            ✅ Enhanced security headers<br>
+            🔧 <strong>Hotfix:</strong> Sửa lỗi gzip compression (utf-8 decode error)
         </div>
         """, unsafe_allow_html=True)
         
