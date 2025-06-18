@@ -193,58 +193,215 @@ class AnswerHackTool:
                 st.info("Chưa có dữ liệu. Vui lòng nhập thông tin và lấy đáp án.")
     
     def fetch_answers(self, quiz_input, input_type, method):
-        """Mô phỏng việc lấy đáp án"""
+        """Lấy đáp án thực từ Kahoot API"""
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         try:
             status_text.text("🔍 Đang tìm kiếm quiz...")
-            progress_bar.progress(25)
-            time.sleep(1)
+            progress_bar.progress(10)
             
-            status_text.text("📡 Đang kết nối API...")
-            progress_bar.progress(50)
-            time.sleep(1)
+            # Xác định quiz_id
+            quiz_id = quiz_input.strip()
             
-            status_text.text("📥 Đang tải đáp án...")
-            progress_bar.progress(75)
-            time.sleep(1)
+            if input_type == "Game PIN":
+                status_text.text("📡 Đang chuyển đổi Game PIN thành Quiz ID...")
+                progress_bar.progress(25)
+                
+                if not quiz_id.isdigit():
+                    raise ValueError("Game PIN phải chỉ chứa số")
+                
+                pin_result = self.get_quiz_id_from_pin(quiz_id)
+                if 'error' in pin_result:
+                    raise ValueError(f"Không thể lấy Quiz ID từ PIN: {pin_result['error']}")
+                
+                quiz_id = pin_result['quiz_id']
+                status_text.text(f"✅ Đã tìm thấy Quiz ID: {quiz_id}")
+                progress_bar.progress(40)
             
-            # Mô phỏng dữ liệu đáp án
-            mock_answers = {
-                'quiz_title': f'Sample Quiz ({quiz_input})',
-                'total_questions': 10,
-                'answers': [
-                    {'question': 'Câu 1: Thủ đô của Việt Nam là?', 'correct_answer': 'Hà Nội', 'options': ['Hà Nội', 'TP.HCM', 'Đà Nẵng', 'Cần Thơ']},
-                    {'question': 'Câu 2: Python được tạo ra bởi ai?', 'correct_answer': 'Guido van Rossum', 'options': ['Guido van Rossum', 'Linus Torvalds', 'Dennis Ritchie', 'Bjarne Stroustrup']},
-                    {'question': 'Câu 3: Framework web phổ biến của Python?', 'correct_answer': 'Django', 'options': ['Django', 'Flask', 'FastAPI', 'Tất cả đều đúng']},
-                    {'question': 'Câu 4: Streamlit dùng để làm gì?', 'correct_answer': 'Tạo web app', 'options': ['Tạo web app', 'Machine Learning', 'Data Analysis', 'Tất cả đều đúng']},
-                    {'question': 'Câu 5: Kahoot là gì?', 'correct_answer': 'Nền tảng quiz trực tuyến', 'options': ['Game mobile', 'Nền tảng quiz trực tuyến', 'Mạng xã hội', 'Ứng dụng chat']}
-                ],
-                'method_used': method,
-                'fetch_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+            status_text.text("📡 Đang kết nối Kahoot API...")
+            progress_bar.progress(60)
+            
+            # Lấy quiz data từ API
+            quiz_data = self.get_quiz_by_id(quiz_id)
+            if 'error' in quiz_data:
+                raise ValueError(f"Lỗi API: {quiz_data['error']}")
+            
+            status_text.text("📥 Đang xử lý dữ liệu quiz...")
+            progress_bar.progress(80)
+            
+            # Xử lý dữ liệu
+            quiz_result = self.process_quiz_data(quiz_data, method)
             
             status_text.text("✅ Hoàn thành!")
             progress_bar.progress(100)
             time.sleep(0.5)
             
-            st.session_state.answers_data = mock_answers
+            st.session_state.answers_data = quiz_result
             
             progress_bar.empty()
             status_text.empty()
             
-            st.success(f"✅ Đã lấy thành công {mock_answers['total_questions']} câu hỏi!")
+            st.success(f"✅ Đã lấy thành công {quiz_result['total_questions']} câu hỏi!")
             
         except Exception as e:
             st.error(f"❌ Lỗi: {str(e)}")
             progress_bar.empty()
             status_text.empty()
     
+    def get_quiz_by_id(self, quiz_id):
+        """Lấy quiz data từ Kahoot API"""
+        import re
+        import urllib.request
+        import urllib.error
+        import json
+        
+        if not re.fullmatch(r"^[A-Za-z0-9-]*$", quiz_id):
+            return {'error': 'Invalid quiz ID format'}
+        
+        url = f"https://play.kahoot.it/rest/kahoots/{quiz_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json'
+        }
+        
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {'error': 'Quiz not found. The ID may be incorrect.'}
+            return {'error': f'HTTP Error: {e.code} - {e.reason}'}
+        except urllib.error.URLError as e:
+            return {'error': f'Connection error: {e.reason}. Check your internet connection.'}
+        except json.JSONDecodeError:
+            return {'error': 'Failed to parse the response from Kahoot servers.'}
+        except Exception as e:
+            return {'error': f'Unexpected error: {str(e)}'}
+    
+    def get_quiz_id_from_pin(self, pin):
+        """Lấy quiz ID từ Game PIN"""
+        import urllib.request
+        import urllib.error
+        import json
+        
+        if not pin.isdigit():
+            return {'error': 'PIN must contain only digits'}
+        
+        url = f"https://kahoot.it/rest/challenges/pin/{pin}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json'
+        }
+        
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                return {'quiz_id': data.get('id')}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {'error': 'No active game found with this PIN.'}
+            return {'error': f'HTTP Error: {e.code} - {e.reason}'}
+        except Exception as e:
+            return {'error': f'Failed to fetch quiz ID from PIN: {str(e)}'}
+    
+    def clean_text(self, text):
+        """Làm sạch text từ HTML tags"""
+        if not text:
+            return ""
+        
+        text = str(text)
+        replacements = [
+            ("<p>", ""), ("</p>", ""), 
+            ("<strong>", ""), ("</strong>", ""),
+            ("<b>", ""), ("</b>", ""),
+            ("<br/>", "\n"), ("<br>", "\n"),
+            ("<span>", ""), ("</span>", ""),
+            ("<math>", ""), ("</math>", ""),
+            ("<semantics>", ""), ("</semantics>", ""),
+            ("<mrow>", ""), ("</mrow>", ""),
+            ("<mo>", ""), ("</mo>", ""),
+            ("<msup>", ""), ("</msup>", ""),
+            ("<mi>", ""), ("</mi>", ""),
+            ("<mn>", ""), ("</mn>", ""),
+            ("<annotation>", ""), ("</annotation>", "")
+        ]
+        
+        for old, new in replacements:
+            text = text.replace(old, new)
+        
+        return text.strip()
+    
+    def process_quiz_data(self, quiz_data, method):
+        """Xử lý dữ liệu quiz thành format hiển thị"""
+        if 'error' in quiz_data or 'uuid' not in quiz_data:
+            raise ValueError("Invalid quiz data")
+        
+        quiz_title = quiz_data.get("title", "Untitled Quiz")
+        creator = quiz_data.get("creator_username", "Unknown")
+        questions = quiz_data.get("questions", [])
+        
+        processed_answers = []
+        
+        for i, question in enumerate(questions):
+            question_type = question.get("type", "unknown")
+            
+            # Skip content slides
+            if question_type == "content":
+                continue
+            
+            question_text = self.clean_text(question.get("question", f"Question {i+1}"))
+            choices = question.get("choices", [])
+            
+            # Xử lý choices
+            processed_choices = []
+            correct_answers = []
+            
+            for choice in choices:
+                answer_text = self.clean_text(choice.get("answer", ""))
+                is_correct = choice.get("correct", False)
+                
+                processed_choices.append(answer_text)
+                if is_correct:
+                    correct_answers.append(answer_text)
+            
+            # Xử lý đặc biệt cho jumble type
+            if question_type == "jumble":
+                correct_answers = processed_choices.copy()
+            
+            processed_answers.append({
+                'question': question_text,
+                'correct_answer': ', '.join(correct_answers) if correct_answers else 'No correct answer',
+                'options': processed_choices,
+                'type': question_type
+            })
+        
+        return {
+            'quiz_title': quiz_title,
+            'creator': creator,
+            'quiz_id': quiz_data.get("uuid", ""),
+            'total_questions': len(processed_answers),
+            'answers': processed_answers,
+            'method_used': method,
+            'fetch_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+    
     def display_answers(self, answers_data):
         """Hiển thị đáp án"""
         st.success(f"📚 **{answers_data['quiz_title']}**")
-        st.info(f"Tổng số câu: {answers_data['total_questions']} | Phương thức: {answers_data['method_used']}")
+        
+        # Hiển thị thông tin quiz
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Tổng số câu", answers_data['total_questions'])
+        with col2:
+            st.metric("Creator", answers_data.get('creator', 'Unknown'))
+        with col3:
+            st.metric("Quiz ID", answers_data.get('quiz_id', '')[:8] + "..." if answers_data.get('quiz_id', '') else 'N/A')
+        
+        st.info(f"Phương thức: {answers_data['method_used']} | Thời gian: {answers_data['fetch_time']}")
         
         # Export button
         if st.button("💾 Export Đáp Án"):
@@ -254,19 +411,23 @@ class AnswerHackTool:
         
         # Hiển thị từng câu hỏi
         for i, qa in enumerate(answers_data['answers'], 1):
-            with st.expander(f"Câu {i}: {qa['question'].split(':')[1].strip() if ':' in qa['question'] else qa['question']}", expanded=True):
-                col1, col2 = st.columns([3, 1])
+            question_title = qa['question'][:50] + "..." if len(qa['question']) > 50 else qa['question']
+            
+            with st.expander(f"Câu {i}: {question_title}", expanded=True):
+                st.write(f"**Câu hỏi:** {qa['question']}")
                 
-                with col1:
-                    st.write("**Các lựa chọn:**")
+                if qa.get('type'):
+                    st.caption(f"Loại: {qa['type']}")
+                
+                st.write(f"**✅ Đáp án đúng:** {qa['correct_answer']}")
+                
+                if qa.get('options') and len(qa['options']) > 0:
+                    st.write("**Tất cả lựa chọn:**")
                     for j, option in enumerate(qa['options']):
-                        if option == qa['correct_answer']:
-                            st.success(f"✅ {chr(65+j)}. {option} (Đáp án đúng)")
+                        if option in qa['correct_answer']:
+                            st.success(f"✅ {chr(65+j)}. {option}")
                         else:
                             st.write(f"❌ {chr(65+j)}. {option}")
-                
-                with col2:
-                    st.metric("Đáp án", qa['correct_answer'])
     
     def export_answers(self, answers_data):
         """Export đáp án ra file"""
