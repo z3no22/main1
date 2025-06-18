@@ -119,7 +119,7 @@ class KittyToolsWeb:
         for page_id, page_name in pages.items():
             if st.sidebar.button(page_name, key=f"nav_{page_id}"):
                 st.session_state.current_page = page_id
-                st.experimental_rerun()
+                st.rerun()
         
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 📊 Thống Kê")
@@ -461,13 +461,13 @@ Export Time: {answers_data['fetch_time']}
             time.sleep(2)
         
         st.success(f"✅ Đã bắt đầu flooding với {bot_count} bot!")
-        st.experimental_rerun()
+        st.rerun()
     
     def stop_flooding(self):
         """Dừng flooding"""
         st.session_state.flood_running = False
         st.info("⏹️ Đã dừng flooding!")
-        st.experimental_rerun()
+        st.rerun()
     
     def info_page(self):
         """Trang thông tin"""
