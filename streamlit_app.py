@@ -148,6 +148,31 @@ class AnswerHackTool:
         </div>
         """, unsafe_allow_html=True)
         
+        # Thông báo về Game PIN
+        with st.expander("🚨 QUAN TRỌNG: Vấn đề với Game PIN", expanded=True):
+            st.error("""
+            **Game PIN hiện tại KHÔNG HOẠT động ổn định!**
+            """)
+            
+            st.warning("""
+            🔴 **Tại sao Game PIN bị lỗi?**
+            • Kahoot thay đổi API liên tục
+            • Game PIN chỉ hoạt động khi game đang live
+            • Cần session authentication phức tạp
+            • API endpoints cũ đã bị vô hiệu hóa
+            """)
+            
+            st.success("""
+            ✅ **GIẢI PHÁP: Sử dụng Quiz ID**
+            
+            📋 **Cách lấy Quiz ID:**
+            1. Vào trang tạo quiz của host
+            2. Nhìn vào URL: `https://create.kahoot.it/details/xxxxx`
+            3. Copy chuỗi UUID dài (40e1bc09-158a-4616-b0cb-e97c6cc6168d)
+            
+            🎯 **Quiz ID luôn hoạt động** - không cần game live!
+            """)
+        
         # Input form
         col1, col2 = st.columns(2)
         
@@ -155,22 +180,24 @@ class AnswerHackTool:
             st.subheader("📝 Nhập Thông Tin")
             input_type = st.selectbox(
                 "Loại Input:",
-                ["Quiz ID", "Game PIN"],
-                help="Chọn loại thông tin bạn có"
+                ["Quiz ID (Khuyến nghị ✅)", "Game PIN (Thường lỗi ❌)"],
+                help="Quiz ID ổn định hơn Game PIN rất nhiều"
             )
             
-            if input_type == "Quiz ID":
+            if "Quiz ID" in input_type:
                 quiz_input = st.text_input(
                     "Quiz ID:", 
-                    placeholder="Nhập Quiz ID (VD: 12345678-1234-1234-1234-123456789012)",
-                    help="Quiz ID thường là chuỗi UUID dài"
+                    placeholder="40e1bc09-158a-4616-b0cb-e97c6cc6168d",
+                    help="Quiz ID là chuỗi UUID dài, luôn hoạt động"
                 )
+                st.success("✅ Quiz ID là lựa chọn tốt nhất!")
             else:
                 quiz_input = st.text_input(
                     "Game PIN:",
-                    placeholder="Nhập Game PIN (VD: 1234567)",
-                    help="Game PIN thường là số 6-7 chữ số"
+                    placeholder="1234567 (Có thể sẽ lỗi)",
+                    help="Game PIN thường KHÔNG hoạt động do API đã thay đổi"
                 )
+                st.error("❌ Game PIN có tỷ lệ lỗi cao, khuyến nghị dùng Quiz ID")
             
             method = st.selectbox(
                 "Phương thức:",
@@ -191,6 +218,28 @@ class AnswerHackTool:
                 self.display_answers(st.session_state.answers_data)
             else:
                 st.info("Chưa có dữ liệu. Vui lòng nhập thông tin và lấy đáp án.")
+                
+            # Hướng dẫn tìm Quiz ID
+            with st.expander("💡 Cách tìm Quiz ID", expanded=False):
+                st.markdown("""
+                **Hướng dẫn chi tiết tìm Quiz ID:**
+                
+                1️⃣ **Từ trang tạo quiz:**
+                - Vào `create.kahoot.it`
+                - Tìm quiz muốn lấy
+                - URL sẽ có dạng: `create.kahoot.it/details/uuid-quiz-id`
+                
+                2️⃣ **Từ link chia sẻ:**
+                - Nếu có link: `kahoot.it/challenge/uuid-quiz-id`
+                - Copy phần UUID sau `/challenge/`
+                
+                3️⃣ **Quiz ID hợp lệ:**
+                - Dạng: `40e1bc09-158a-4616-b0cb-e97c6cc6168d`
+                - Dài 36 ký tự với dấu gạch ngang
+                """)
+                
+                st.code("40e1bc09-158a-4616-b0cb-e97c6cc6168d", language="text")
+                st.caption("Ví dụ Quiz ID hợp lệ ☝️")
     
     def fetch_answers(self, quiz_input, input_type, method):
         """Lấy đáp án thực từ Kahoot API"""
@@ -204,18 +253,22 @@ class AnswerHackTool:
             # Xác định quiz_id
             quiz_id = quiz_input.strip()
             
-            if input_type == "Game PIN":
-                status_text.text("📡 Đang chuyển đổi Game PIN thành Quiz ID...")
+            if "Game PIN" in input_type:
+                status_text.text("📡 Đang thử chuyển đổi Game PIN thành Quiz ID...")
                 progress_bar.progress(25)
                 
                 if not quiz_id.isdigit():
                     raise ValueError("Game PIN phải chỉ chứa số")
                 
+                st.warning("⚠️ Đang thử Game PIN - có thể sẽ lỗi do Kahoot đã thay đổi API")
+                
                 pin_result = self.get_quiz_id_from_pin(quiz_id)
                 if 'error' in pin_result:
-                    raise ValueError(f"Không thể lấy Quiz ID từ PIN: {pin_result['error']}")
+                    st.error("❌ Game PIN không hoạt động như dự đoán!")
+                    raise ValueError(pin_result['error'])
                 
                 quiz_id = pin_result['quiz_id']
+                st.success(f"🎉 Bất ngờ! Game PIN vẫn hoạt động: {quiz_id}")
                 status_text.text(f"✅ Đã tìm thấy Quiz ID: {quiz_id}")
                 progress_bar.progress(40)
             
@@ -281,31 +334,89 @@ class AnswerHackTool:
             return {'error': f'Unexpected error: {str(e)}'}
     
     def get_quiz_id_from_pin(self, pin):
-        """Lấy quiz ID từ Game PIN"""
+        """Lấy quiz ID từ Game PIN - Thử nhiều endpoint khác nhau"""
         import urllib.request
         import urllib.error
         import json
         
         if not pin.isdigit():
-            return {'error': 'PIN must contain only digits'}
+            return {'error': 'PIN phải chỉ chứa số'}
         
-        url = f"https://kahoot.it/rest/challenges/pin/{pin}"
+        # Danh sách các endpoint để thử
+        endpoints = [
+            f"https://play.kahoot.it/reserve/session/{pin}/",
+            f"https://kahoot.it/rest/challenges/pin/{pin}",
+            f"https://play.kahoot.it/rest/challenges/pin/{pin}",
+            f"https://play.kahoot.it/rest/kahoots/pin/{pin}"
+        ]
+        
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'application/json'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://kahoot.it',
+            'Referer': 'https://kahoot.it/'
         }
         
-        try:
-            request = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(request, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                return {'quiz_id': data.get('id')}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {'error': 'No active game found with this PIN.'}
-            return {'error': f'HTTP Error: {e.code} - {e.reason}'}
-        except Exception as e:
-            return {'error': f'Failed to fetch quiz ID from PIN: {str(e)}'}
+        last_error = None
+        
+        for endpoint in endpoints:
+            try:
+                request = urllib.request.Request(endpoint, headers=headers)
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    
+                    # Thử các cách khác nhau để extract quiz ID
+                    quiz_id = None
+                    
+                    # Phương thức 1: Tìm trực tiếp
+                    if 'id' in data:
+                        quiz_id = data['id']
+                    elif 'uuid' in data:
+                        quiz_id = data['uuid']
+                    elif 'kahoot' in data and 'uuid' in data['kahoot']:
+                        quiz_id = data['kahoot']['uuid']
+                    elif 'challenge' in data and 'kahoot' in data['challenge']:
+                        if 'uuid' in data['challenge']['kahoot']:
+                            quiz_id = data['challenge']['kahoot']['uuid']
+                        elif 'id' in data['challenge']['kahoot']:
+                            quiz_id = data['challenge']['kahoot']['id']
+                    
+                    if quiz_id:
+                        return {'quiz_id': quiz_id}
+                    else:
+                        # Nếu có challenge token, có thể cần decode
+                        if 'challenge' in data and isinstance(data['challenge'], str):
+                            return {'error': 'Game PIN hợp lệ nhưng cần xử lý thêm challenge token. Vui lòng sử dụng Quiz ID thay thế.'}
+                        
+            except urllib.error.HTTPError as e:
+                last_error = f'HTTP Error: {e.code} - {e.reason}'
+                if e.code == 404:
+                    continue  # Thử endpoint tiếp theo
+                elif e.code == 400:
+                    continue  # Thử endpoint tiếp theo
+                else:
+                    continue
+            except Exception as e:
+                last_error = f'Error: {str(e)}'
+                continue
+        
+        # Nếu tất cả endpoints đều fail
+        return {
+            'error': f"""Không thể lấy Quiz ID từ Game PIN. 
+
+🔍 Lý do có thể:
+• Game không đang live hoặc PIN đã hết hạn
+• Kahoot đã thay đổi API (rất thường xuyên)
+• Game PIN chỉ hoạt động khi có session trực tiếp
+
+💡 Giải pháp thay thế:
+• Sử dụng Quiz ID thay vì Game PIN
+• Quiz ID có dạng: 40e1bc09-158a-4616-b0cb-e97c6cc6168d
+• Tìm Quiz ID trong URL khi host tạo game
+
+Lỗi cuối: {last_error}"""
+        }
     
     def clean_text(self, text):
         """Làm sạch text từ HTML tags"""
