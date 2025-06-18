@@ -10,16 +10,10 @@ requests>=2.28.0
 urllib3>=1.26.0
 
 # File và data processing
-pathlib
-json
-datetime
+# pathlib, json, datetime are built-in modules
 
-# System và platform
-platform
-subprocess
-os
-sys
-time
+# System và platform  
+# platform, subprocess, os, sys, time are built-in modules
 
 # Optional for enhanced functionality
 plotly>=5.0.0
