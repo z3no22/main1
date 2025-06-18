@@ -160,6 +160,7 @@ class AnswerHackTool:
             • Game PIN chỉ hoạt động khi game đang live
             • Cần session authentication phức tạp
             • API endpoints cũ đã bị vô hiệu hóa
+            • Challenge token cần decode phức tạp
             """)
             
             st.success("""
@@ -171,6 +172,12 @@ class AnswerHackTool:
             3. Copy chuỗi UUID dài (40e1bc09-158a-4616-b0cb-e97c6cc6168d)
             
             🎯 **Quiz ID luôn hoạt động** - không cần game live!
+            
+            🔧 **Cải tiến mới:**
+            • Đã thêm challenge token decoder
+            • Multiple endpoint fallbacks  
+            • Web scraping backup method
+            • Vẫn khuyến nghị dùng Quiz ID để đảm bảo
             """)
         
         # Input form
@@ -347,7 +354,9 @@ class AnswerHackTool:
             f"https://play.kahoot.it/reserve/session/{pin}/",
             f"https://kahoot.it/rest/challenges/pin/{pin}",
             f"https://play.kahoot.it/rest/challenges/pin/{pin}",
-            f"https://play.kahoot.it/rest/kahoots/pin/{pin}"
+            f"https://play.kahoot.it/rest/kahoots/pin/{pin}",
+            f"https://play.kahoot.it/rest/challenges/{pin}",
+            f"https://create.kahoot.it/rest/kahoots/pin/{pin}"
         ]
         
         headers = {
@@ -385,9 +394,13 @@ class AnswerHackTool:
                     if quiz_id:
                         return {'quiz_id': quiz_id}
                     else:
-                        # Nếu có challenge token, có thể cần decode
+                        # Thử xử lý challenge token
                         if 'challenge' in data and isinstance(data['challenge'], str):
-                            return {'error': 'Game PIN hợp lệ nhưng cần xử lý thêm challenge token. Vui lòng sử dụng Quiz ID thay thế.'}
+                            challenge_result = self.decode_challenge_token(data['challenge'])
+                            if challenge_result:
+                                return {'quiz_id': challenge_result}
+                            else:
+                                return {'error': 'Game PIN hợp lệ nhưng challenge token quá phức tạp. Vui lòng sử dụng Quiz ID thay thế.'}
                         
             except urllib.error.HTTPError as e:
                 last_error = f'HTTP Error: {e.code} - {e.reason}'
@@ -401,6 +414,11 @@ class AnswerHackTool:
                 last_error = f'Error: {str(e)}'
                 continue
         
+        # Thử phương pháp web scraping như fallback cuối cùng
+        scraping_result = self.try_web_scraping_pin(pin)
+        if scraping_result and 'quiz_id' in scraping_result:
+            return scraping_result
+        
         # Nếu tất cả endpoints đều fail
         return {
             'error': f"""Không thể lấy Quiz ID từ Game PIN. 
@@ -409,14 +427,134 @@ class AnswerHackTool:
 • Game không đang live hoặc PIN đã hết hạn
 • Kahoot đã thay đổi API (rất thường xuyên)
 • Game PIN chỉ hoạt động khi có session trực tiếp
+• Challenge token cần xử lý phức tạp
 
 💡 Giải pháp thay thế:
 • Sử dụng Quiz ID thay vì Game PIN
 • Quiz ID có dạng: 40e1bc09-158a-4616-b0cb-e97c6cc6168d
 • Tìm Quiz ID trong URL khi host tạo game
+• Hoặc sử dụng browser dev tools để inspect network
+
+🔧 Đã thử:
+• {len(endpoints)} API endpoints khác nhau
+• Challenge token decoding
+• Web scraping fallback
 
 Lỗi cuối: {last_error}"""
         }
+    
+    def decode_challenge_token(self, challenge_str):
+        """Thử decode challenge token từ Kahoot"""
+        try:
+            import re
+            import base64
+            import json
+            
+            # Thử các pattern khác nhau để extract quiz ID từ challenge
+            patterns = [
+                r'["\']id["\']:\s*["\']([a-f0-9-]{36})["\']',
+                r'["\']uuid["\']:\s*["\']([a-f0-9-]{36})["\']',
+                r'["\']quizId["\']:\s*["\']([a-f0-9-]{36})["\']',
+                r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
+            ]
+            
+            # Thử tìm UUID pattern trực tiếp trong challenge string
+            for pattern in patterns:
+                matches = re.findall(pattern, challenge_str, re.IGNORECASE)
+                if matches:
+                    return matches[0]
+            
+            # Thử decode nếu là base64
+            try:
+                decoded = base64.b64decode(challenge_str).decode('utf-8')
+                for pattern in patterns:
+                    matches = re.findall(pattern, decoded, re.IGNORECASE)
+                    if matches:
+                        return matches[0]
+            except:
+                pass
+            
+            # Thử parse JSON nếu có thể
+            try:
+                # Remove JavaScript code và chỉ lấy JSON part
+                if 'decode.call' in challenge_str:
+                    # Extract JSON-like content
+                    json_match = re.search(r'\{.*\}', challenge_str)
+                    if json_match:
+                        json_str = json_match.group()
+                        data = json.loads(json_str)
+                        if 'id' in data:
+                            return data['id']
+                        if 'uuid' in data:
+                            return data['uuid']
+            except:
+                pass
+            
+            return None
+            
+        except Exception as e:
+            return None
+    
+    def try_web_scraping_pin(self, pin):
+        """Thử web scraping để lấy Quiz ID từ Game PIN"""
+        try:
+            import urllib.request
+            import urllib.error
+            import re
+            
+            # Thử truy cập kahoot.it với PIN
+            urls_to_try = [
+                f"https://kahoot.it/join?pin={pin}",
+                f"https://play.kahoot.it/v2/game/{pin}",
+                f"https://kahoot.it/game/{pin}"
+            ]
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'DNT': '1',
+                'Connection': 'keep-alive'
+            }
+            
+            for url in urls_to_try:
+                try:
+                    request = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(request, timeout=10) as response:
+                        html_content = response.read().decode('utf-8')
+                        
+                        # Tìm UUID patterns trong HTML
+                        uuid_patterns = [
+                            r'quiz["\']?\s*:\s*["\']([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})["\']',
+                            r'id["\']?\s*:\s*["\']([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})["\']',
+                            r'uuid["\']?\s*:\s*["\']([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})["\']',
+                            r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
+                        ]
+                        
+                        for pattern in uuid_patterns:
+                            matches = re.findall(pattern, html_content, re.IGNORECASE)
+                            if matches:
+                                # Lọc bỏ UUID không phải quiz ID (như session ID)
+                                for match in matches:
+                                    if self.validate_quiz_id(match):
+                                        return {'quiz_id': match}
+                        
+                except Exception:
+                    continue
+            
+            return None
+            
+        except Exception:
+            return None
+    
+    def validate_quiz_id(self, quiz_id):
+        """Validate xem UUID có phải là quiz ID hợp lệ không"""
+        # Quick check bằng cách thử API
+        try:
+            test_result = self.get_quiz_by_id(quiz_id)
+            return 'error' not in test_result and 'uuid' in test_result
+        except:
+            return False
     
     def clean_text(self, text):
         """Làm sạch text từ HTML tags"""
