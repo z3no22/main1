@@ -116,10 +116,22 @@ class KittyToolsWeb:
             'settings': '⚙️ Cài Đặt'
         }
         
+        # Sử dụng radio button để navigation không cần rerun
+        current_page_label = pages.get(st.session_state.current_page, pages['home'])
+        page_labels = list(pages.values())
+        
+        selected_label = st.sidebar.radio(
+            "Chọn trang:",
+            page_labels,
+            index=page_labels.index(current_page_label),
+            label_visibility="collapsed"
+        )
+        
+        # Cập nhật current_page dựa trên selection
         for page_id, page_name in pages.items():
-            if st.sidebar.button(page_name, key=f"nav_{page_id}"):
+            if page_name == selected_label:
                 st.session_state.current_page = page_id
-                st.rerun()
+                break
         
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 📊 Thống Kê")
@@ -461,13 +473,11 @@ Export Time: {answers_data['fetch_time']}
             time.sleep(2)
         
         st.success(f"✅ Đã bắt đầu flooding với {bot_count} bot!")
-        st.rerun()
     
     def stop_flooding(self):
         """Dừng flooding"""
         st.session_state.flood_running = False
         st.info("⏹️ Đã dừng flooding!")
-        st.rerun()
     
     def info_page(self):
         """Trang thông tin"""
