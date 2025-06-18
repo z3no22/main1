@@ -1,0 +1,31 @@
+# Streamlit và core dependencies
+streamlit>=1.28.0
+pandas>=1.5.0
+numpy>=1.21.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Web và API
+requests>=2.28.0
+urllib3>=1.26.0
+
+# File và data processing
+pathlib
+json
+datetime
+
+# System và platform
+platform
+subprocess
+os
+sys
+time
+
+# Optional for enhanced functionality
+plotly>=5.0.0
+altair>=4.0.0
+pillow>=9.0.0
+
+# For potential Kahoot integration
+websocket-client>=1.4.0
+aiohttp>=3.8.0 
